@@ -1,0 +1,34 @@
+:root {
+  --bg:   #070a0f;
+  --bg2:  #0d1117;
+  --bg3:  #141b24;
+  --b:    rgba(255,255,255,0.07);
+  --b2:   rgba(255,255,255,0.13);
+  --acc:  #00c8ff;
+  --acc2: #ff6b35;
+  --tw:   #9147ff;
+  --yt:   #ff0000;
+  --text: #e8edf5;
+  --mut:  #6b7a8d;
+  --r:    10px;
+  --fd:   'Rajdhani', sans-serif;
+  --fm:   'JetBrains Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--fd);
+  min-height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg, transparent, transparent 2px,
+    rgba(0,200,255,.011) 2px, rgba(0,200,255,.011) 4px
+  );
+}
