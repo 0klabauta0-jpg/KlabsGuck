@@ -35,7 +35,7 @@ function splitRow(row: string): string[] {
 }
 
 function extractYtId(url: string): string {
-  const m = url.match(/(?:v=|youtu\.be\/|\/embed\/)([a-zA-Z0-9_-]{11})/);
+  const m = url.match(/(?:v=|youtu\.be\/|\/embed\/|\/live\/)([a-zA-Z0-9_-]{11})/);
   return m ? m[1] : "";
 }
 
