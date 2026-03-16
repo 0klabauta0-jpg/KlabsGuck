@@ -89,13 +89,14 @@ function getEmbedUrl(p: Player, autoplay = false): string | null {
 }
 
 // ── LOGIN SCREEN ─────────────────────────────────────────────
-function LoginScreen({ onLogin }: { onLogin: (roomId: string, sheetUrl: string) => void }) {
-  const [mode, setMode]       = useState<"klabs" | "sheet">("klabs");
-  const [roomId, setRoomId]   = useState("");
-  const [pw, setPw]           = useState("");
-  const [sheetUrl, setSheetUrl] = useState("");
-  const [err, setErr]         = useState("");
-  const [loading, setLoading] = useState(false);
+function LoginScreen({ onLogin }: { onLogin: (roomId: string, sheetUrl: string, sheetShareUrl: string) => void }) {
+  const [mode, setMode]             = useState<"klabs" | "sheet">("klabs");
+  const [roomId, setRoomId]         = useState("");
+  const [pw, setPw]                 = useState("");
+  const [sheetUrl, setSheetUrl]     = useState("");
+  const [shareUrl, setShareUrl]     = useState("");
+  const [err, setErr]               = useState("");
+  const [loading, setLoading]       = useState(false);
 
   async function handleKlabsLogin() {
     if (!roomId.trim() || !pw.trim()) { setErr("Bitte Raum-ID und Passwort eingeben."); return; }
@@ -103,10 +104,11 @@ function LoginScreen({ onLogin }: { onLogin: (roomId: string, sheetUrl: string) 
     try {
       const snap = await getDoc(doc(db, "rooms", roomId.trim(), "config", "main"));
       if (!snap.exists()) { setErr(`Raum "${roomId}" nicht gefunden.`); setLoading(false); return; }
-      const cfg = snap.data() as { password: string; sheetUrl: string };
+      const cfg = snap.data() as { password: string; sheetUrl: string; sheetShareUrl?: string };
       if (cfg.password !== pw.trim()) { setErr("Falsches Passwort."); setLoading(false); return; }
-      localStorage.setItem(LS_SESSION, JSON.stringify({ roomId: roomId.trim(), pw: pw.trim(), mode: "klabs" }));
-      onLogin(roomId.trim(), cfg.sheetUrl);
+      const shareUrl = cfg.sheetShareUrl || "";
+      localStorage.setItem(LS_SESSION, JSON.stringify({ roomId: roomId.trim(), pw: pw.trim(), mode: "klabs", sheetShareUrl: shareUrl }));
+      onLogin(roomId.trim(), cfg.sheetUrl, shareUrl);
     } catch (e: any) { setErr("Fehler: " + e.message); setLoading(false); }
   }
 
@@ -114,15 +116,14 @@ function LoginScreen({ onLogin }: { onLogin: (roomId: string, sheetUrl: string) 
     if (!sheetUrl.trim().startsWith("http")) { setErr("Bitte eine gültige Sheet-URL eingeben."); return; }
     setLoading(true); setErr("");
     try {
-      // Quick test if sheet is reachable
       let u = sheetUrl.trim();
       if (!u.includes("range=")) u += (u.includes("?")?"&":"?") + "range=A10:Z11";
       u += (u.includes("?")?"&":"?") + "_t=" + Date.now();
       const res = await fetch(u, { cache:"no-store" });
       if (!res.ok) throw new Error("Sheet nicht erreichbar (Status " + res.status + ")");
       const roomLabel = "sheet_" + Date.now();
-      localStorage.setItem(LS_SESSION, JSON.stringify({ roomId: roomLabel, sheetUrl: sheetUrl.trim(), mode: "sheet" }));
-      onLogin(roomLabel, sheetUrl.trim());
+      localStorage.setItem(LS_SESSION, JSON.stringify({ roomId: roomLabel, sheetUrl: sheetUrl.trim(), sheetShareUrl: shareUrl.trim(), mode: "sheet" }));
+      onLogin(roomLabel, sheetUrl.trim(), shareUrl.trim());
     } catch (e: any) { setErr("Fehler: " + e.message); setLoading(false); }
   }
 
@@ -194,8 +195,18 @@ function LoginScreen({ onLogin }: { onLogin: (roomId: string, sheetUrl: string) 
                 onKeyDown={e => e.key === "Enter" && handleSheetLogin()}
                 style={{ ...inp, fontSize:11 }} />
             </div>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontFamily:"var(--fm)", fontSize:11, color:"var(--mut)", marginBottom:4 }}>
+                SHEET FREIGABE-LINK <span style={{color:"var(--mut)"}}>· optional, für Kopier-Button</span>
+              </label>
+              <input type="text" placeholder="https://docs.google.com/spreadsheets/d/…/edit?usp=sharing"
+                value={shareUrl} onChange={e => setShareUrl(e.target.value)}
+                style={{ ...inp, fontSize:11 }} />
+              <div style={{ fontFamily:"var(--fm)", fontSize:10, color:"var(--mut)", marginTop:3 }}>
+                Sheet → Teilen → Link kopieren (die /edit URL)
+              </div>
+            </div>
             <div style={{ fontFamily:"var(--fm)", fontSize:10, color:"var(--mut)", marginBottom:16, lineHeight:1.6 }}>
-              Sheet → Datei → Im Web veröffentlichen → CSV → URL kopieren.<br/>
               Spalten: J = <span style={{color:"var(--acc)"}}>TwitchHandle</span> · K = <span style={{color:"var(--acc)"}}>StreamUrl</span><br/>
               <span style={{color:"rgba(255,165,0,.7)"}}>⚠ Gruppen-Sync zwischen Geräten nicht verfügbar ohne KlabsCom.</span>
             </div>
@@ -337,7 +348,7 @@ function FocusOverlay({ player, onClose }: { player: Player | null; onClose: () 
 }
 
 // ── MAIN APP ──────────────────────────────────────────────────
-function App({ roomId, sheetUrl, onLogout }: { roomId: string; sheetUrl: string; onLogout: () => void }) {
+function App({ roomId, sheetUrl, sheetShareUrl, onLogout }: { roomId: string; sheetUrl: string; sheetShareUrl: string; onLogout: () => void }) {
   const [players, setPlayers]     = useState<Player[]>([]);
   const [groups, setGroups]       = useState<Group[]>([]);
   const [platFilter, setPlatFilter] = useState("all");
@@ -348,7 +359,16 @@ function App({ roomId, sheetUrl, onLogout }: { roomId: string; sheetUrl: string;
   const [dragOver, setDragOver]   = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState("");
   const [loading, setLoading]     = useState(false);
+  const [copied, setCopied]       = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function copySheetLink() {
+    if (!sheetShareUrl) return;
+    navigator.clipboard.writeText(sheetShareUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   // ── Firestore groups sync ──
   useEffect(() => {
@@ -488,6 +508,13 @@ function App({ roomId, sheetUrl, onLogout }: { roomId: string; sheetUrl: string;
           style={{ marginLeft:"auto", padding:"4px 12px", fontFamily:"var(--fd)", fontSize:12, fontWeight:600, border:"1px solid var(--b2)", borderRadius:6, background:"transparent", color:"var(--mut)", cursor:"pointer", flexShrink:0 }}>
           ← Logout
         </button>
+        {sheetShareUrl && (
+          <button onClick={copySheetLink}
+            title="Sheet-Link in Zwischenablage kopieren"
+            style={{ padding:"4px 12px", fontFamily:"var(--fd)", fontSize:12, fontWeight:600, border:`1px solid ${copied ? "var(--acc)" : "var(--b2)"}`, borderRadius:6, background:"transparent", color: copied ? "var(--acc)" : "var(--mut)", cursor:"pointer", flexShrink:0, transition:"all .2s" }}>
+            {copied ? "✓ Kopiert!" : "📊 Sheet"}
+          </button>
+        )}
       </header>
 
       {/* Status bar */}
@@ -594,7 +621,7 @@ function App({ roomId, sheetUrl, onLogout }: { roomId: string; sheetUrl: string;
 
 // ── ROOT PAGE ─────────────────────────────────────────────────
 export default function Page() {
-  const [session, setSession] = useState<{ roomId: string; sheetUrl: string } | null>(null);
+  const [session, setSession] = useState<{ roomId: string; sheetUrl: string; sheetShareUrl: string } | null>(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -604,7 +631,7 @@ export default function Page() {
       const parsed = JSON.parse(saved);
       // Sheet-only mode — no Firebase check needed
       if (parsed.mode === "sheet" && parsed.sheetUrl) {
-        setSession({ roomId: parsed.roomId, sheetUrl: parsed.sheetUrl });
+        setSession({ roomId: parsed.roomId, sheetUrl: parsed.sheetUrl, sheetShareUrl: parsed.sheetShareUrl || "" });
         setChecking(false);
         return;
       }
@@ -612,7 +639,7 @@ export default function Page() {
       const { roomId, pw } = parsed;
       getDoc(doc(db, "rooms", roomId, "config", "main")).then(snap => {
         if (snap.exists() && snap.data().password === pw) {
-          setSession({ roomId, sheetUrl: snap.data().sheetUrl });
+          setSession({ roomId, sheetUrl: snap.data().sheetUrl, sheetShareUrl: parsed.sheetShareUrl || snap.data().sheetShareUrl || "" });
         } else {
           localStorage.removeItem(LS_SESSION);
         }
@@ -621,7 +648,9 @@ export default function Page() {
     } catch { localStorage.removeItem(LS_SESSION); setChecking(false); }
   }, []);
 
-  function handleLogin(roomId: string, sheetUrl: string) { setSession({ roomId, sheetUrl }); }
+  function handleLogin(roomId: string, sheetUrl: string, sheetShareUrl: string) {
+    setSession({ roomId, sheetUrl, sheetShareUrl });
+  }
 
   function handleLogout() {
     localStorage.removeItem(LS_SESSION);
@@ -635,5 +664,5 @@ export default function Page() {
   );
 
   if (!session) return <LoginScreen onLogin={handleLogin} />;
-  return <App roomId={session.roomId} sheetUrl={session.sheetUrl} onLogout={handleLogout} />;
+  return <App roomId={session.roomId} sheetUrl={session.sheetUrl} sheetShareUrl={session.sheetShareUrl} onLogout={handleLogout} />;
 }
