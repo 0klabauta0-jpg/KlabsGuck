@@ -68,11 +68,27 @@ function parseCSV(text: string): Player[] {
     headers.forEach((h, idx) => { row[h.trim()] = (vals[idx] || "").trim(); });
     const name = row["Spielername"] || row["Name"] || "";
     if (!name) continue;
-    const twitch    = row["TwitchHandle"] || "";
-    const streamUrl = row["StreamUrl"] || row["YoutubeStream"] || "";
-    if (!twitch && !streamUrl) continue;
-    const platform = detectPlatform(twitch, streamUrl);
-    const ytVideoId = platform === "youtube" ? extractYtId(streamUrl) : "";
+    // Single stream URL column — accepts any link
+    const streamUrl = row["StreamUrl"] || row["TwitchHandle"] || row["YouTubeChannel"] || row["YoutubeChannel"] || row["YoutubeStream"] || "";
+    if (!streamUrl) continue;
+
+    // Detect platform from URL
+    let platform: Player["platform"] = null;
+    let twitch = "";
+    let ytVideoId = "";
+
+    if (streamUrl.includes("twitch.tv")) {
+      platform = "twitch";
+      // Extract channel name from twitch.tv/channelname
+      const m = streamUrl.match(/twitch\.tv\/([a-zA-Z0-9_]+)/);
+      twitch = m ? m[1] : streamUrl;
+    } else if (streamUrl.includes("youtube.com") || streamUrl.includes("youtu.be")) {
+      platform = "youtube";
+      ytVideoId = extractYtId(streamUrl);
+    } else if (streamUrl.startsWith("http")) {
+      platform = "custom";
+    }
+
     players.push({
       id:        row["PlayerId"] || stableId(name),
       name, area: row["Bereich"] || "", role: row["Rolle"] || "",
