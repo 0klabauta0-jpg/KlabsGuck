@@ -90,12 +90,14 @@ function getEmbedUrl(p: Player, autoplay = false): string | null {
 
 // ── LOGIN SCREEN ─────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (roomId: string, sheetUrl: string) => void }) {
-  const [roomId, setRoomId] = useState("");
-  const [pw, setPw]         = useState("");
-  const [err, setErr]       = useState("");
+  const [mode, setMode]       = useState<"klabs" | "sheet">("klabs");
+  const [roomId, setRoomId]   = useState("");
+  const [pw, setPw]           = useState("");
+  const [sheetUrl, setSheetUrl] = useState("");
+  const [err, setErr]         = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleLogin() {
+  async function handleKlabsLogin() {
     if (!roomId.trim() || !pw.trim()) { setErr("Bitte Raum-ID und Passwort eingeben."); return; }
     setLoading(true); setErr("");
     try {
@@ -103,48 +105,108 @@ function LoginScreen({ onLogin }: { onLogin: (roomId: string, sheetUrl: string) 
       if (!snap.exists()) { setErr(`Raum "${roomId}" nicht gefunden.`); setLoading(false); return; }
       const cfg = snap.data() as { password: string; sheetUrl: string };
       if (cfg.password !== pw.trim()) { setErr("Falsches Passwort."); setLoading(false); return; }
-      localStorage.setItem(LS_SESSION, JSON.stringify({ roomId: roomId.trim(), pw: pw.trim() }));
+      localStorage.setItem(LS_SESSION, JSON.stringify({ roomId: roomId.trim(), pw: pw.trim(), mode: "klabs" }));
       onLogin(roomId.trim(), cfg.sheetUrl);
     } catch (e: any) { setErr("Fehler: " + e.message); setLoading(false); }
   }
 
+  async function handleSheetLogin() {
+    if (!sheetUrl.trim().startsWith("http")) { setErr("Bitte eine gültige Sheet-URL eingeben."); return; }
+    setLoading(true); setErr("");
+    try {
+      // Quick test if sheet is reachable
+      let u = sheetUrl.trim();
+      if (!u.includes("range=")) u += (u.includes("?")?"&":"?") + "range=A10:Z11";
+      u += (u.includes("?")?"&":"?") + "_t=" + Date.now();
+      const res = await fetch(u, { cache:"no-store" });
+      if (!res.ok) throw new Error("Sheet nicht erreichbar (Status " + res.status + ")");
+      const roomLabel = "sheet_" + Date.now();
+      localStorage.setItem(LS_SESSION, JSON.stringify({ roomId: roomLabel, sheetUrl: sheetUrl.trim(), mode: "sheet" }));
+      onLogin(roomLabel, sheetUrl.trim());
+    } catch (e: any) { setErr("Fehler: " + e.message); setLoading(false); }
+  }
+
+  const box: React.CSSProperties = { background:"var(--bg2)", border:"1px solid var(--b2)", borderRadius:16, padding:36, width:"100%", maxWidth:420, boxShadow:"0 24px 80px rgba(0,0,0,.6)" };
+  const inp: React.CSSProperties = { width:"100%", padding:"9px 12px", fontFamily:"var(--fm)", fontSize:13, background:"var(--bg3)", border:"1px solid var(--b2)", borderRadius:8, color:"var(--text)", outline:"none" };
+  const tab = (active: boolean): React.CSSProperties => ({
+    flex:1, padding:"8px 0", fontFamily:"var(--fd)", fontWeight:700, fontSize:13, letterSpacing:.5,
+    cursor:"pointer", border:"1px solid var(--b2)", borderRadius:8, transition:"all .15s",
+    background: active ? "var(--acc)" : "transparent",
+    color: active ? "#000" : "var(--mut)",
+  });
+
   return (
     <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:20, position:"relative", zIndex:1 }}>
-      <div style={{ background:"var(--bg2)", border:"1px solid var(--b2)", borderRadius:16, padding:36, width:"100%", maxWidth:380, boxShadow:"0 24px 80px rgba(0,0,0,.6)" }}>
+      <div style={box}>
+        {/* Logo */}
         <div style={{ fontFamily:"var(--fd)", fontWeight:700, fontSize:28, letterSpacing:2, color:"var(--acc)", textTransform:"uppercase", marginBottom:4 }}>
           Klabsguck
         </div>
-        <div style={{ fontFamily:"var(--fm)", fontSize:11, color:"var(--mut)", marginBottom:28 }}>
-          stream dashboard · raum-login
+        <div style={{ fontFamily:"var(--fm)", fontSize:11, color:"var(--mut)", marginBottom:24 }}>
+          stream dashboard
         </div>
 
-        {(["RAUM-ID", "TEAM-PASSWORT"] as const).map((label, i) => (
-          <div key={label} style={{ marginBottom:14 }}>
-            <label style={{ display:"block", fontFamily:"var(--fm)", fontSize:11, color:"var(--mut)", marginBottom:4 }}>{label}</label>
-            <input
-              type={i === 1 ? "password" : "text"}
-              placeholder={i === 0 ? "z.B. alpha-ops" : "Team-Passwort"}
-              value={i === 0 ? roomId : pw}
-              onChange={e => i === 0 ? setRoomId(e.target.value) : setPw(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") i === 0 ? document.getElementById("pw-input")?.focus() : handleLogin(); }}
-              id={i === 1 ? "pw-input" : undefined}
-              style={{ width:"100%", padding:"9px 12px", fontFamily:"var(--fm)", fontSize:13, background:"var(--bg3)", border:"1px solid var(--b2)", borderRadius:8, color:"var(--text)", outline:"none" }}
-            />
-          </div>
-        ))}
+        {/* Mode toggle */}
+        <div style={{ display:"flex", gap:6, marginBottom:24 }}>
+          <button style={tab(mode==="klabs")} onClick={() => { setMode("klabs"); setErr(""); }}>
+            KlabsCom Raum
+          </button>
+          <button style={tab(mode==="sheet")} onClick={() => { setMode("sheet"); setErr(""); }}>
+            Sheet-URL direkt
+          </button>
+        </div>
 
-        <button
-          onClick={handleLogin} disabled={loading}
-          style={{ width:"100%", padding:10, fontFamily:"var(--fd)", fontWeight:700, fontSize:15, letterSpacing:.5, background:"var(--acc)", border:"none", borderRadius:8, color:"#000", cursor:"pointer", marginTop:6, opacity: loading ? .5 : 1 }}>
-          {loading ? "Prüfe…" : "Einloggen →"}
-        </button>
+        {/* KlabsCom mode */}
+        {mode === "klabs" && (
+          <>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontFamily:"var(--fm)", fontSize:11, color:"var(--mut)", marginBottom:4 }}>RAUM-ID</label>
+              <input type="text" placeholder="z.B. alpha-ops" value={roomId}
+                onChange={e => setRoomId(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && document.getElementById("pw-input")?.focus()}
+                style={inp} />
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontFamily:"var(--fm)", fontSize:11, color:"var(--mut)", marginBottom:4 }}>TEAM-PASSWORT</label>
+              <input type="password" id="pw-input" placeholder="Team-Passwort" value={pw}
+                onChange={e => setPw(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleKlabsLogin()}
+                style={inp} />
+            </div>
+            <div style={{ fontFamily:"var(--fm)", fontSize:10, color:"var(--mut)", marginBottom:16, lineHeight:1.5 }}>
+              Selbe Raum-ID und Passwort wie bei KlabsCom.<br/>
+              Sheet-URL und Gruppen-Sync kommen automatisch.
+            </div>
+            <button onClick={handleKlabsLogin} disabled={loading}
+              style={{ width:"100%", padding:10, fontFamily:"var(--fd)", fontWeight:700, fontSize:15, letterSpacing:.5, background:"var(--acc)", border:"none", borderRadius:8, color:"#000", cursor:"pointer", opacity:loading?.5:1 }}>
+              {loading ? "Prüfe…" : "Einloggen →"}
+            </button>
+          </>
+        )}
+
+        {/* Direct sheet mode */}
+        {mode === "sheet" && (
+          <>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontFamily:"var(--fm)", fontSize:11, color:"var(--mut)", marginBottom:4 }}>GOOGLE SHEET CSV-URL</label>
+              <input type="text" placeholder="https://docs.google.com/spreadsheets/d/…/export?format=csv"
+                value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSheetLogin()}
+                style={{ ...inp, fontSize:11 }} />
+            </div>
+            <div style={{ fontFamily:"var(--fm)", fontSize:10, color:"var(--mut)", marginBottom:16, lineHeight:1.6 }}>
+              Sheet → Datei → Im Web veröffentlichen → CSV → URL kopieren.<br/>
+              Spalten: J = <span style={{color:"var(--acc)"}}>TwitchHandle</span> · K = <span style={{color:"var(--acc)"}}>StreamUrl</span><br/>
+              <span style={{color:"rgba(255,165,0,.7)"}}>⚠ Gruppen-Sync zwischen Geräten nicht verfügbar ohne KlabsCom.</span>
+            </div>
+            <button onClick={handleSheetLogin} disabled={loading}
+              style={{ width:"100%", padding:10, fontFamily:"var(--fd)", fontWeight:700, fontSize:15, letterSpacing:.5, background:"var(--acc2)", border:"none", borderRadius:8, color:"#fff", cursor:"pointer", opacity:loading?.5:1 }}>
+              {loading ? "Prüfe…" : "Sheet laden →"}
+            </button>
+          </>
+        )}
 
         {err && <div style={{ fontFamily:"var(--fm)", fontSize:11, color:"#f87171", marginTop:10 }}>{err}</div>}
-
-        <div style={{ fontFamily:"var(--fm)", fontSize:10, color:"var(--mut)", marginTop:14, lineHeight:1.5 }}>
-          Selbe Raum-ID und Passwort wie bei KlabsCom.<br/>
-          Sheet und Streams werden automatisch geladen.
-        </div>
       </div>
     </div>
   );
@@ -539,7 +601,15 @@ export default function Page() {
     const saved = localStorage.getItem(LS_SESSION);
     if (!saved) { setChecking(false); return; }
     try {
-      const { roomId, pw } = JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      // Sheet-only mode — no Firebase check needed
+      if (parsed.mode === "sheet" && parsed.sheetUrl) {
+        setSession({ roomId: parsed.roomId, sheetUrl: parsed.sheetUrl });
+        setChecking(false);
+        return;
+      }
+      // KlabsCom mode — verify password against Firestore
+      const { roomId, pw } = parsed;
       getDoc(doc(db, "rooms", roomId, "config", "main")).then(snap => {
         if (snap.exists() && snap.data().password === pw) {
           setSession({ roomId, sheetUrl: snap.data().sheetUrl });
