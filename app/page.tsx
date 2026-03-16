@@ -35,8 +35,19 @@ function splitRow(row: string): string[] {
 }
 
 function extractYtId(url: string): string {
-  const m = url.match(/(?:v=|youtu\.be\/|\/embed\/|\/live\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : "";
+  if (!url) return "";
+  // Handle all known YouTube URL formats:
+  // youtube.com/watch?v=ID
+  // youtu.be/ID
+  // youtube.com/embed/ID
+  // youtube.com/live/ID
+  // youtube.com/shorts/ID
+  // youtube.com/v/ID
+  const m = url.match(/(?:v=|youtu\.be\/|\/embed\/|\/live\/|\/shorts\/|\/v\/)([a-zA-Z0-9_-]{11})/);
+  if (m) return m[1];
+  // Fallback: last 11-char segment that looks like a video ID
+  const fallback = url.match(/([a-zA-Z0-9_-]{11})(?:[?&]|$)/);
+  return fallback ? fallback[1] : "";
 }
 
 function detectPlatform(twitch: string, streamUrl: string): Player["platform"] {
@@ -523,8 +534,16 @@ function App({ roomId, sheetUrl, sheetShareUrl, onLogout }: { roomId: string; sh
         <span><span style={{ width:6,height:6,borderRadius:"50%",background:"var(--yt)",display:"inline-block",marginRight:4 }}/>{yt} YouTube</span>
         {cu > 0 && <span><span style={{ width:6,height:6,borderRadius:"50%",background:"#374151",display:"inline-block",marginRight:4 }}/>{cu} Custom</span>}
         <span style={{ color:"var(--mut)" }}>{players.length} gesamt</span>
-        <span style={{ marginLeft:"auto" }}>
-          {loading ? <span style={{ animation:"spin 1s linear infinite", display:"inline-block" }}>↻</span> : lastRefresh ? "↻ "+lastRefresh : ""}
+        <span style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
+          {lastRefresh && <span style={{ color:"var(--mut)" }}>↻ {lastRefresh}</span>}
+          <button
+            onClick={loadSheet}
+            disabled={loading}
+            title="Sheet neu laden"
+            style={{ display:"flex", alignItems:"center", gap:5, padding:"3px 10px", fontFamily:"var(--fm)", fontSize:11, border:"1px solid var(--b2)", borderRadius:6, background:"transparent", color: loading ? "var(--mut)" : "var(--acc)", cursor: loading ? "default" : "pointer", transition:"all .15s", opacity: loading ? .5 : 1 }}>
+            <span style={{ display:"inline-block", animation: loading ? "spin 1s linear infinite" : "none" }}>↻</span>
+            {loading ? "lädt…" : "Aktualisieren"}
+          </button>
         </span>
       </div>
 
